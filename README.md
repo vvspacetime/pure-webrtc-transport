@@ -1,4 +1,5 @@
 # Pure WebRTC Transport(纯粹的WebRTC传输通道)
+[README in English](README.en.md)
 
 ## What is `pure-webrtc-transport`?
 ### 传统的WebRTC实现
@@ -26,7 +27,8 @@ WebRTC是一个包含音视频的采集、编解码、网络传输、显示的�
 ### pure-webrtc-transport
 `pure-webrtc-transport`(纯粹的WebRTC传输通道)与传统的开源WebRTC实现不同。`pure-webrtc-transport`和UDP协议相似，只提供`网络收发`的机制，
 而将`传输算法`，`抖动缓冲`、`编解码`、`打包`等交给上层来做。  
-这使得算法策略模块的修改不会影响基本的网络收发功能，使其更容易替换和对比。传输功能也独立于音视频内容，使其更易理解和测试。
+这使得算法策略模块的修改不会影响基本的网络收发功能，使其更容易替换和对比。传输功能也独立于音视频内容，使其更易理解和测试。  
+`pure-webrtc-transport`作为一个纯粹的传输通道，可以同时在客户端和服务器（例如：WebRTC SFU）使用。
 
 ## Sample
 使用音频track传输任意数据
@@ -51,7 +53,7 @@ await pc2.setRemoteDescription(offer)
 answer = await pc2.createAnswer()
 await pc1.setRemoteDescription(answer)
 
-await asyncio.sleep(2)
+await asyncio.sleep(2) # wait dtls handshake
 packet_to_send = b"this is a packet"
 rtp_timestamp = 100
 await audio_track.send(RtpPacket(timestamp=rtp_timestamp, payload=packet_to_send))
