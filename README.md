@@ -62,7 +62,7 @@ print("recv payload", recv_packet.payload)
 ```
 
 ## Examples
-- [x] Echo
+- [x] Echo Server
 - [ ] SFU
 - [ ] WebRTC Benchmark Tool
 
