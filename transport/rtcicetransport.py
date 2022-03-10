@@ -321,6 +321,14 @@ class RTCIceTransport(AsyncIOEventEmitter):
         self._connection.remote_is_lite = remoteParameters.iceLite
         self._connection.remote_username = remoteParameters.usernameFragment
         self._connection.remote_password = remoteParameters.password
+
+        # TODO: aioice bug, if not remote candidate, can not add reflex candidate to check_list
+        # NOTES: aioice在没有任何remote candidate时, 即使收到来自远端的STUN Binding, 也产生不了Reflex Candidate
+        # add default remote candidate for active incoming request
+        if len(self._connection.remote_candidates) == 0:
+            await self._connection.add_remote_candidate(Candidate(foundation="100", component=1,
+                                                                  priority=2122260223, host="127.0.0.1",
+                                                                  port=1000, type="host", transport="udp"))
         try:
             await self._connection.connect()
         except ConnectionError:

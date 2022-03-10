@@ -312,6 +312,7 @@ class RtpRouter:
             return ssrc_receiver
 
         # the SSRC is unknown but the payload type matches, update the SSRC table
+        # NOTES: 当没有ssrc时，使用payload type进行匹配
         if ssrc_receiver is None and len(pt_receivers) == 1:
             pt_receiver = list(pt_receivers)[0]
             self.ssrc_table[packet.ssrc] = pt_receiver

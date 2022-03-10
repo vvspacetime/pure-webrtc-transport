@@ -1,0 +1,32 @@
+<html>
+<video id="local"></video>
+<video id="remote"></video>
+<script>
+    async function main() {
+        let localMediaStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true})
+        document.getElementById("local").srcObject = localMediaStream
+        document.getElementById("local").play()
+
+
+        let pc = new RTCPeerConnection()
+        pc.addTransceiver(localMediaStream.getVideoTracks()[0], { direction: "sendonly" })
+        pc.addTransceiver(localMediaStream.getAudioTracks()[0], { direction: "sendonly" })
+        pc.addTransceiver("video", { direction: "recvonly" })
+        pc.addTransceiver("audio", { direction: "recvonly" })
+
+        let offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        let resp = await fetch("http://127.0.0.1:8989/sdp", {
+            method: "POST",
+            body: offer.sdp
+        })
+        let answer = await resp.text()
+        pc.ontrack = (ev) => {
+            document.getElementById("remote").srcObject = ev.streams[0]
+            document.getElementById("remote").play()
+        }
+        await pc.setRemoteDescription(new RTCSessionDescription({type: "answer", sdp: answer}))
+    }
+    main()
+</script>
+</html>

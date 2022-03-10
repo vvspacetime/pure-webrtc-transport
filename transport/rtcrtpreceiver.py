@@ -291,7 +291,7 @@ class RTCRtpReceiver:
             for encoding in parameters.encodings:
                 if encoding.rtx:
                     self.__rtx_ssrc[encoding.rtx.ssrc] = encoding.ssrc
-
+            # NOTES: rtp接收路由设置, 当ssrc或pt相同时, 路由到这个receiver
             self.__transport._register_rtp_receiver(self, parameters)
             self.__rtcp_task = asyncio.ensure_future(self._run_rtcp())
             self.__started = True

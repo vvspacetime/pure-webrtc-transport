@@ -200,19 +200,22 @@ def create_media_description_for_transceiver(
     media.rtcp_host = DISCARD_HOST
     media.rtcp_port = DISCARD_PORT
     media.rtcp_mux = True
-    media.ssrc = [sdp.SsrcDescription(ssrc=transceiver.sender._ssrc, cname=cname)]
 
-    # if RTX is enabled, add corresponding SSRC
-    if next(filter(is_rtx, media.rtp.codecs), None):
-        media.ssrc.append(
-            sdp.SsrcDescription(ssrc=transceiver.sender._rtx_ssrc, cname=cname)
-        )
-        media.ssrc_group = [
-            sdp.GroupDescription(
-                semantic="FID",
-                items=[transceiver.sender._ssrc, transceiver.sender._rtx_ssrc],
+    # Only sender need ssrc
+    if media.direction in ["sendonly", "sendrecv"]:
+        media.ssrc = [sdp.SsrcDescription(ssrc=transceiver.sender._ssrc, cname=cname)]
+
+        # if RTX is enabled, add corresponding SSRC
+        if next(filter(is_rtx, media.rtp.codecs), None):
+            media.ssrc.append(
+                sdp.SsrcDescription(ssrc=transceiver.sender._rtx_ssrc, cname=cname)
             )
-        ]
+            media.ssrc_group = [
+                sdp.GroupDescription(
+                    semantic="FID",
+                    items=[transceiver.sender._ssrc, transceiver.sender._rtx_ssrc],
+                )
+            ]
 
     add_transport_description(media, transceiver._transport)
 
@@ -654,7 +657,10 @@ class RTCPeerConnection(AsyncIOEventEmitter):
         # configure direction
         for t in self.__transceivers:
             if description.type in ["answer", "pranswer"]:
-                t._currentDirection = and_direction(t.direction, t._offerDirection)
+                if not t._offerDirection:
+                    t._currentDirection = "inactive"
+                else:
+                    t._currentDirection = and_direction(t.direction, t._offerDirection)
 
         # gather candidates
         await self.__gather()
@@ -698,7 +704,8 @@ class RTCPeerConnection(AsyncIOEventEmitter):
                 transceiver = None
                 for t in self.__transceivers:
                     if t.kind == media.kind and t.mid in [None, media.rtp.muxId]:
-                        transceiver = t
+                        if t.mid or (and_direction(t.direction, reverse_direction(media.direction)) != "inactive"):
+                            transceiver = t
                 if transceiver is None:
                     transceiver = self.__createTransceiver(
                         direction="recvonly", kind=media.kind
@@ -731,6 +738,8 @@ class RTCPeerConnection(AsyncIOEventEmitter):
                     transceiver._currentDirection = direction
                 else:
                     transceiver._offerDirection = direction
+                    # 设置direction, 为了在dtls connected时向transport注册receiver
+                    transceiver._currentDirection = direction
 
                 # create remote stream track
                 if (
@@ -841,16 +850,16 @@ class RTCPeerConnection(AsyncIOEventEmitter):
                 await iceTransport.start(self.__remoteIce[transceiver])
                 if dtlsTransport.state == "new":
                     await dtlsTransport.start(self.__remoteDtls[transceiver])
-                    await transceiver.receiver.receive(
-                        self.__remoteRtp(transceiver)
-                    )
+                    # await transceiver.receiver.receive(
+                    #     self.__remoteRtp(transceiver)
+                    # )
                 if dtlsTransport.state == "connected":
                     if transceiver.currentDirection in ["sendonly", "sendrecv"]:
                         await transceiver.sender.send(self.__localRtp(transceiver))
-                    # if transceiver.currentDirection in ["recvonly", "sendrecv"]:
-                    #     await transceiver.receiver.receive(
-                    #         self.__remoteRtp(transceiver)
-                    #     )
+                    if transceiver.currentDirection in ["recvonly", "sendrecv"]:
+                        await transceiver.receiver.receive(
+                            self.__remoteRtp(transceiver)
+                        )
 
     async def __gather(self) -> None:
         coros = map(lambda t: t.iceGatherer.gather(), self.__iceTransports)
@@ -954,6 +963,7 @@ class RTCPeerConnection(AsyncIOEventEmitter):
                     ssrc=media.ssrc[0].ssrc, payloadType=codec.payloadType
                 )
             receiveParameters.encodings = list(encodings.values())
+        # NOTES: rtp接收路由设置, 路由关键字为ssrc或pt
         return receiveParameters
 
     def __setSignalingState(self, state: str) -> None:
