@@ -78,6 +78,7 @@ def init_codecs() -> None:
         dynamic_pt += 2
 
     add_video_codec("video/VP8")
+    add_video_codec("video/VP9")
     add_video_codec(
         "video/H264",
         OrderedDict(
