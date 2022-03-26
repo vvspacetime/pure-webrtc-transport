@@ -4,6 +4,7 @@ import struct
 from dataclasses import dataclass, field
 from struct import pack, unpack, unpack_from
 from typing import Any, List, Optional, Tuple, Union
+from enum import Enum
 
 from .rtcrtpparameters import RTCRtpParameters
 
@@ -25,6 +26,7 @@ RTCP_RTPFB = 205
 RTCP_PSFB = 206
 
 RTCP_RTPFB_NACK = 1
+RTCP_RTPFB_TWCC = 15
 
 RTCP_PSFB_PLI = 1
 RTCP_PSFB_SLI = 2
@@ -439,6 +441,154 @@ class RtcpRrPacket:
         return cls(ssrc=ssrc, reports=reports)
 
 
+# 3 bytes
+def parse_reference_time(data: bytes):
+    time_24bit = (data[0] << 16) + (data[1] << 8) + data[2]
+    # minus_sign = bool(data[0] & 0x80)
+    # if minus_sign:
+    #     return -((~(time_24bit - 1)) & 0x7FFFFF)
+    # else:
+    #     return time_24bit
+    return time_24bit
+
+
+@dataclass
+class Chunk:
+    status_list: list = field(default_factory=list)
+
+    class ChunkStatus(Enum):
+        NOT_RECEIVED = 0
+        SMALL_DELTA = 1
+        LARGE_DELTA = 2
+        RESERVED = 3
+        NONE = 4
+
+    @classmethod
+    def parse(cls, data: bytes, remain: int):
+        if len(data) != 2:
+            raise ValueError("tcc chunk length must be 2")
+        run_length_chunk = bool(data[0] & 0x80)
+        if run_length_chunk == 0:
+            return RunLengthChunk(data)
+        else:
+            symbol = bool(data[0] & 0x40)
+            if symbol:
+                return TwoBitVectorChunk(data, remain)
+            else:
+                return OneBitVectorChunk(data, remain)
+
+    @classmethod
+    def received(cls, status: ChunkStatus):
+        return status == Chunk.ChunkStatus.LARGE_DELTA or status == Chunk.ChunkStatus.SMALL_DELTA
+
+    def received_count(self):
+        count = 0
+        for s in self.status_list:
+            if Chunk.received(s):
+                count += 1
+        return count
+
+
+@dataclass
+class OneBitVectorChunk(Chunk):
+    def __init__(self, data: bytes, remain: int):
+        self.status_list = []
+        table = ((data[0] & 0x3F) << 8) + data[1]
+        for i in range(min(14, remain)):
+            status = Chunk.ChunkStatus(table >> (14 - i - 1) & 0x01)
+            self.status_list.append(status)
+
+
+@dataclass
+class TwoBitVectorChunk(Chunk):
+    def __init__(self, data: bytes, remain):
+        self.status_list = []
+        table = ((data[0] & 0x3F) << 8) + data[1]
+        for i in range(min(7, remain)):
+            status = Chunk.ChunkStatus((table >> (2 * (7 - i - 1))) & 0x03)
+            self.status_list.append(status)
+
+
+@dataclass
+class RunLengthChunk(Chunk):
+    def __init__(self, data: bytes):
+        self.status_list = []
+        status = Chunk.ChunkStatus((data[0] >> 5) & 0x03)
+        count = (data[0] & 0x1F << 8) + data[1]
+        self.status_list = []
+        for _ in range(count):
+            self.status_list.append(status)
+
+
+@dataclass
+class TwccPacketResult:
+    t_seq: int
+    receive_ms: int
+    received: bool
+
+    payload_size: Optional[int]
+    send_ms: Optional[int]
+
+    def __init__(self, t_seq: int, receive_ms: int = 0, received: bool = False):
+        self.t_seq = t_seq
+        self.receive_ms = receive_ms
+        self.received = received
+
+
+@dataclass
+class RtcpRtpfbTwccPacket:
+    @classmethod
+    def parse(cls, data: bytes) -> List[TwccPacketResult]:
+        base_seq_number, = unpack("!H", data[0:2])
+        packet_status_count, = unpack("!H", data[2:4])
+        reference_time = parse_reference_time(data[4: 7])
+        feedback_packet_count = data[7]
+
+        data = data[8:]
+        content_len = len(data)  # 8 is tcc header len
+        offset = 0
+        count = 0
+        print("base_seq: {}, count: {}".format(base_seq_number, packet_status_count))
+        received_packet_status_count = 0
+        chunks: List[List] = list()  # [status, delta, seq]
+        while count < packet_status_count and offset < content_len:
+            if content_len - offset < 2:
+                raise ValueError("invalid tcc feedback payload")
+            chunk = Chunk.parse(data[offset:offset + 2], packet_status_count - count)
+            offset += 2
+            count += len(chunk.status_list)
+            for s in chunk.status_list:
+                chunks.append([s, 0, 0])
+
+        seq = base_seq_number
+        for c in chunks:
+            c[2] = seq
+            seq += 1
+            if c[0] == Chunk.ChunkStatus.NOT_RECEIVED:
+                continue
+            elif c[0] == Chunk.ChunkStatus.SMALL_DELTA:
+                c[1] = data[offset]
+                offset += 1
+            elif c[0] == Chunk.ChunkStatus.LARGE_DELTA:
+                c[1] = (data[offset] << 8) + data[offset + 1]
+                offset += 2
+        # if not content_len >= offset >= content_len - 1:
+        #     raise ValueError("parse tcc feedback payload error")
+
+        results = []
+        received_time_ms = reference_time * 64
+        for c in chunks:
+            if Chunk.received(c[0]):
+                received_time_ms += c[1] / 4
+                results.append(TwccPacketResult(t_seq=c[2],
+                                                receive_ms=int(received_time_ms),
+                                                received=True))
+            else:
+                results.append(TwccPacketResult(t_seq=c[2]))
+
+        return results
+
+
 @dataclass
 class RtcpRtpfbPacket:
     """
@@ -451,6 +601,7 @@ class RtcpRtpfbPacket:
 
     # generick NACK
     lost: List[int] = field(default_factory=list)
+    twcc: List[TwccPacketResult] = field(default_factory=list)
 
     def __bytes__(self) -> bytes:
         payload = pack("!LL", self.ssrc, self.media_ssrc)
@@ -470,18 +621,24 @@ class RtcpRtpfbPacket:
 
     @classmethod
     def parse(cls, data: bytes, fmt: int):
-        if len(data) < 8 or len(data) % 4:
+        if len(data) < 8:
             raise ValueError("RTCP RTP feedback length is invalid")
-
         ssrc, media_ssrc = unpack("!LL", data[0:8])
-        lost = []
-        for pos in range(8, len(data), 4):
-            pid, blp = unpack("!HH", data[pos: pos + 4])
-            lost.append(pid)
-            for d in range(0, 16):
-                if (blp >> d) & 1:
-                    lost.append(pid + d + 1)
-        return cls(fmt=fmt, ssrc=ssrc, media_ssrc=media_ssrc, lost=lost)
+
+        if fmt == RTCP_RTPFB_NACK:
+            if len(data) % 4 != 0:
+                raise ValueError("RTCP RTP feedback length is invalid")
+            lost = []
+            for pos in range(8, len(data), 4):
+                pid, blp = unpack("!HH", data[pos: pos + 4])
+                lost.append(pid)
+                for d in range(0, 16):
+                    if (blp >> d) & 1:
+                        lost.append(pid + d + 1)
+            print("nack: {}".format(lost))
+            return cls(fmt=fmt, ssrc=ssrc, media_ssrc=media_ssrc, lost=lost)
+        elif fmt == RTCP_RTPFB_TWCC:
+            return cls(fmt=fmt, ssrc=ssrc, media_ssrc=media_ssrc, twcc=RtcpRtpfbTwccPacket.parse(data[8:]))
 
 
 @dataclass
@@ -579,7 +736,7 @@ class RtcpPacket:
             v_p_count, packet_type, length = unpack("!BBH", data[pos: pos + 4])
             version = v_p_count >> 6
             padding = (v_p_count >> 5) & 1
-            count = v_p_count & 0x1F
+            count = v_p_count & 0x1F  # fmt
             if version != 2:
                 raise ValueError("RTCP packet has invalid version")
             pos += 4
@@ -631,7 +788,11 @@ class RtpPacket:
         self.extensions = HeaderExtensions()
         self.payload = payload
         self.padding_size = 0
+
+        # not in rtp header
         self.capture_ms = 0
+        self.send_ms = 0
+        self.total_size = 0  # with header
 
     def __repr__(self) -> str:
         return (
@@ -718,6 +879,7 @@ class RtpPacket:
         if padding:
             data += os.urandom(self.padding_size - 1)
             data += bytes([self.padding_size])
+        self.total_size = len(data)
         return data
 
 

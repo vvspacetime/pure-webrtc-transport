@@ -1,9 +1,11 @@
 import asyncio
-from transport import RTCPeerConnection, LocalStreamTrack, MediaStreamTrack, RtpPacket, RTCSessionDescription, codecs
+from transport import RTCPeerConnection, LocalStreamTrack, MediaStreamTrack, RtpPacket, RTCSessionDescription, codecs, \
+    RTCConfiguration
 from aiohttp import web, web_request, web_response
 import logging
 from content import Vp8PayloadDescriptor, Vp9PayloadDescriptor
 from datetime import datetime
+from policy import SendSideDelayBasedBitrateEstimator
 
 
 pc = RTCPeerConnection()
@@ -18,6 +20,7 @@ async def handle(request: web_request.Request):
 
     remote_audio_track = None
     remote_video_track = None
+    bwe = SendSideDelayBasedBitrateEstimator()
 
     def on_remote_track(track: MediaStreamTrack):
         nonlocal remote_audio_track, remote_video_track
@@ -27,6 +30,20 @@ async def handle(request: web_request.Request):
         else:
             remote_video_track = track
 
+    def read_feedback_loop(local_track: LocalStreamTrack):
+        async def func():
+            while True:
+                tcc_results = await local_track.read_feedback()
+                # print("result: {}", tcc_results)
+                tcc_results.sort(key=lambda e: e.receive_ms)
+                for res in tcc_results:
+                    print("+++++++++++++++++++++++")
+                    bitrate = bwe.add(res.receive_ms, res.send_ms, res.payload_size)
+                    if bitrate:
+                        print("bitrate={}, recv_time={}".format(bitrate, res.receive_ms))
+                    print("-----------------------")
+        return func
+
     def echo(local_track: LocalStreamTrack, remote_track: MediaStreamTrack):
         async def func():
             while True:
@@ -34,8 +51,9 @@ async def handle(request: web_request.Request):
 
                 if len(packet.payload) != 0 and packet.payload_type == 98:
                     content = Vp9PayloadDescriptor.parse(packet.payload)
-                    print("{}, tid={}, sid={}, picid={}".format(datetime.now(), content.tid, content.sid, content.picture_id))
-                    if content.tid > 0:
+                    # print("{}, tid={}, sid={}, picid={}".format(datetime.now(), content.tid, content.sid,
+                    # content.picture_id))
+                    if content.tid and content.tid > 0:
                         continue
 
                 # print("packet recv, pts={}, len={}".format(packet.timestamp, len(packet.payload)))
@@ -57,6 +75,7 @@ async def handle(request: web_request.Request):
     await pc.setLocalDescription(answer_sd)
 
     asyncio.ensure_future(echo(local_video_track, remote_video_track)())
+    asyncio.ensure_future(read_feedback_loop(local_video_track)())
     return web.Response(text=answer_sd.sdp)
 
 

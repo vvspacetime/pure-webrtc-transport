@@ -27,7 +27,8 @@ from .rtp import (
     RtcpSrPacket,
     RtpPacket,
     unpack_remb_fci,
-    wrap_rtx,
+    wrap_rtx, RTCP_RTPFB_TWCC,
+    TwccPacketResult
 )
 from .stats import (
     RTCOutboundRtpStreamStats,
@@ -39,6 +40,7 @@ from .utils import random16, random32, uint16_add, uint32_add
 logger = logging.getLogger(__name__)
 
 RTP_HISTORY_SIZE = 128  # TODO: policy retransmit
+TCC_HISTORY_SIZE = 1024
 RTT_ALPHA = 0.85
 
 
@@ -49,6 +51,7 @@ class LocalStreamTrack(MediaStreamTrack):
         if id is not None:
             self._id = id
         self._queue: asyncio.Queue = asyncio.Queue()
+        self._reverse_queue: asyncio.Queue = asyncio.Queue()
 
     async def send(self, packet: RtpPacket):
         await self._queue.put(packet)
@@ -65,6 +68,12 @@ class LocalStreamTrack(MediaStreamTrack):
             self.stop()
             raise MediaStreamError
         return pkt
+
+    async def read_feedback(self) -> List[TwccPacketResult]:
+        results = await self._reverse_queue.get()
+        if results is None:
+            raise MediaStreamError
+        return results
 
 
 class RTCRtpSender:
@@ -107,6 +116,8 @@ class RTCRtpSender:
         self.__rtcp_task: Optional[asyncio.Future[None]] = None
         self.__rtx_payload_type: Optional[int] = None
         self.__rtx_sequence_number = random16()
+        self.__transport_sequence_number = 0
+        self.__tcc_history: Dict[int, RtpPacket] = {}  # t_seq
         self.__started = False
         self.__stats = RTCStatsReport()
         self.__transport = transport
@@ -256,9 +267,20 @@ class RTCRtpSender:
                         fractionLost=report.fraction_lost,
                     )
                 )
-        elif isinstance(packet, RtcpRtpfbPacket) and packet.fmt == RTCP_RTPFB_NACK:
-            for seq in packet.lost:
-                await self._retransmit(seq)
+        elif isinstance(packet, RtcpRtpfbPacket):
+            if packet.fmt == RTCP_RTPFB_NACK:
+                for seq in packet.lost:
+                    await self._retransmit(seq)
+            if packet.fmt == RTCP_RTPFB_TWCC:
+                for fb in packet.twcc:
+                    pkt = self.get_packet_by_transport_sequence_number(fb.t_seq)
+                    if pkt is not None:
+                        fb.send_ms = pkt.send_ms
+                        fb.payload_size = pkt.total_size
+                if self.__track and isinstance(self.__track, LocalStreamTrack):
+                    await self.__track._reverse_queue.put(packet.twcc)
+
+
         elif isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_PLI:
             self._send_keyframe()
         elif isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_APP:
@@ -286,6 +308,7 @@ class RTCRtpSender:
                     ssrc=self._rtx_ssrc,
                 )
                 self.__rtx_sequence_number = uint16_add(self.__rtx_sequence_number, 1)
+                self.set_transport_sequence_number(packet)
 
             self.__log_debug("> %s", packet)
             packet_bytes = packet.serialize(self.__rtp_header_extensions_map)
@@ -318,6 +341,7 @@ class RTCRtpSender:
                                                       clock.current_ntp_time() >> 14
                                                   ) & 0x00FFFFFF
                 packet.extensions.mid = self.__mid
+                self.set_transport_sequence_number(packet)
 
                 # send packet
                 self.__log_debug("> %s", packet)
@@ -406,6 +430,19 @@ class RTCRtpSender:
             await self.transport._send_rtp(payload)
         except ConnectionError:
             pass
+
+    def set_transport_sequence_number(self, packet: RtpPacket):
+        packet.extensions.transport_sequence_number = self.__transport_sequence_number
+        self.__transport_sequence_number = uint16_add(self.__transport_sequence_number, 1)
+        packet.send_ms = clock.current_ms()
+        self.__tcc_history[packet.extensions.transport_sequence_number % TCC_HISTORY_SIZE] = packet
+
+    def get_packet_by_transport_sequence_number(self, transport_sequence_number: int) -> Optional[RtpPacket]:
+        pkt = self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
+        del self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
+        if pkt.extensions.transport_sequence_number == transport_sequence_number:
+            return pkt
+        return None
 
     def __log_debug(self, msg: str, *args) -> None:
         logger.debug(f"RTCRtpSender(%s) {msg}", self.__kind, *args)

@@ -180,7 +180,8 @@ class RTCIceGatherer(AsyncIOEventEmitter):
         #     iceServers = self.getDefaultIceServers()
         ice_kwargs = connection_kwargs(iceServers)
 
-        self._connection = Connection(ice_controlling=False, **ice_kwargs)
+        # TODO: add ipv6 to config
+        self._connection = Connection(ice_controlling=False, use_ipv6=False, **ice_kwargs)
         self._remote_candidates_end = False
         self.__state = "new"
 

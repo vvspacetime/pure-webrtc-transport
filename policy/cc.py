@@ -143,14 +143,16 @@ class AimdRateControl:
             self.state = RateControlState.HOLD
 
         self.current_bitrate = self._clamp_bitrate(new_bitrate, estimated_throughput)
+        print("aimd, new_bitrate={}, throughput={}, state={}".format(new_bitrate, estimated_throughput, self.state))
         return self.current_bitrate
 
     def _additive_rate_increase(self, last_ms: int, now_ms: int) -> int:
         return int((now_ms - last_ms) * self._near_max_rate_increase() / 1000)
 
     def _clamp_bitrate(self, new_bitrate: int, estimated_throughput: int) -> int:
-        max_bitrate = max(int(1.5 * estimated_throughput) + 10000, self.current_bitrate)
-        return min(new_bitrate, max_bitrate)
+        # 10k <= bitrate <= 1.5*est+10k
+        max_bitrate = min(int(1.5 * estimated_throughput) + 10000, new_bitrate)
+        return max(max_bitrate, 10000)
 
     def _multiplicative_rate_increase(
         self, new_bitrate: int, last_ms: int, now_ms: int
@@ -541,7 +543,6 @@ class TrendlineEstimator:
         self.delay_hist_: deque[TrendlineEstimator.PacketTiming] = deque()
         self.first_arrival_time_ms = None
         self.prev_trend = 0.0
-        self.prev_modified_trend = 0.0
         self.threshold = 12.5  # default
         self.k_up = 0.0087
         self.k_down = 0.039
@@ -551,7 +552,7 @@ class TrendlineEstimator:
 
     def update(self, recv_delta_ms: int, send_delta_ms: int,
                send_time_ms: int, arrive_time_ms: int):
-        delta_ms = recv_delta_ms - send_time_ms
+        delta_ms = recv_delta_ms - send_delta_ms
         self.num_of_deltas += 1
         self.num_of_deltas = min(self.num_of_deltas, DELTA_COUNTER_MAX)
         if self.first_arrival_time_ms is None:
@@ -572,12 +573,13 @@ class TrendlineEstimator:
         if len(self.delay_hist_) == self.WINDOW_SIZE:
             trend = self.liner_fit_slope()
         self.detect(trend, send_delta_ms, arrive_time_ms)
+        print("delta:{}, state:{}, at:{}".format(delta_ms, self.usage, arrive_time_ms))
 
     def liner_fit_slope(self) -> float:
         x_plots = [i.arrival_time_ms for i in self.delay_hist_]
         y_plots = [i.smoothed_delay_ms for i in self.delay_hist_]
-        slop, _, _, _ = stats.linregress(x_plots, y_plots)
-        return slop
+        result = stats.linregress(x_plots, y_plots)
+        return result.slope
 
     def state(self) -> BandwidthUsage:
         return self.usage
@@ -588,7 +590,8 @@ class TrendlineEstimator:
             return
         modified_trend = min(self.num_of_deltas, MIN_NUM_DELTAS) * \
             trend * TrendlineEstimator.ThresholdGain
-        self.prev_modified_trend = modified_trend
+        print("trend:{:.2f}, at:{}".format(modified_trend, arrival_time_ms))
+
         if modified_trend > self.threshold:
             if self.time_over_using is None:
                 self.time_over_using = send_delta_ms / 2
@@ -800,7 +803,10 @@ class SendSideDelayBasedBitrateEstimator:
         deltas = self.inter_arrival.compute_deltas(
             send_time_ms, arrival_time_ms, payload_size
         )
+        print("send_ms:{}, recv_ms:{}".format(send_time_ms, arrival_time_ms))
         if deltas is not None:
+            print("send_delta:{}, recv_delta:{}".format(deltas.send_time_delta, deltas.arrival_time_delta))
+
             self.estimator.update(
                 recv_delta_ms=deltas.arrival_time_delta,
                 send_delta_ms=deltas.send_time_delta,

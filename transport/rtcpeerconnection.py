@@ -127,6 +127,7 @@ def find_common_header_extensions(
     remote_extensions: List[RTCRtpHeaderExtensionParameters],
 ) -> List[RTCRtpHeaderExtensionParameters]:
     common = []
+    # NOTES: 匹配并使用远端的extension id
     for rx in remote_extensions:
         for lx in local_extensions:
             if lx.uri == rx.uri:
@@ -728,8 +729,14 @@ class RTCPeerConnection(AsyncIOEventEmitter):
                     )
 
                 transceiver._codecs = common
+                # NOTES: workaround use remb for uplink
+                # TODO: remove
+                extensions = HEADER_EXTENSIONS[media.kind].copy()
+                if media.direction == "sendonly" and media.kind == "video":
+                    extensions.pop()
+
                 transceiver._headerExtensions = find_common_header_extensions(
-                    HEADER_EXTENSIONS[media.kind], media.rtp.headerExtensions
+                    extensions, media.rtp.headerExtensions
                 )
 
                 # configure direction
@@ -738,7 +745,7 @@ class RTCPeerConnection(AsyncIOEventEmitter):
                     transceiver._currentDirection = direction
                 else:
                     transceiver._offerDirection = direction
-                    # 设置direction, 为了在dtls connected时向transport注册receiver
+                    # 设置direction, 为了可以在dtls connected时向transport注册receiver
                     transceiver._currentDirection = direction
 
                 # create remote stream track

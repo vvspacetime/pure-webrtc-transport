@@ -43,6 +43,9 @@ HEADER_EXTENSIONS: Dict[str, List[RTCRtpHeaderExtensionParameters]] = {
         RTCRtpHeaderExtensionParameters(
             id=2, uri="http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"
         ),
+        RTCRtpHeaderExtensionParameters(
+            id=3, uri="http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+        )
     ],
 }
 
@@ -65,6 +68,7 @@ def init_codecs() -> None:
                     RTCRtcpFeedback(type="nack"),
                     RTCRtcpFeedback(type="nack", parameter="pli"),
                     RTCRtcpFeedback(type="goog-remb"),
+                    RTCRtcpFeedback(type="transport-cc")
                 ],
                 parameters=parameters or OrderedDict(),
             ),

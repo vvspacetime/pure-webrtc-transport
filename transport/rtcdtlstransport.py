@@ -564,7 +564,7 @@ class RTCDtlsTransport(AsyncIOEventEmitter):
         try:
             packets = RtcpPacket.parse(data)
         except ValueError as exc:
-            self.__log_debug("x RTCP parsing failed: %s", exc)
+            self.__log_warning("x RTCP parsing failed: %s", exc)
             return
 
         for packet in packets:
