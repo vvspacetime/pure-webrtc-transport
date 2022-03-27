@@ -1,0 +1,37 @@
+<html>
+<video id="remote" controls="controls" height="270" width="480"></video>
+<script>
+    async function main() {
+        let pc = new RTCPeerConnection()
+        let recv_transceiver = pc.addTransceiver("video", { direction: "recvonly" })
+
+        for (let codec of RTCRtpSender.getCapabilities('video').codecs) {
+            console.log(codec)
+            if (codec.mimeType.includes("VP9")) {
+                console.log("select codec", codec)
+                let codecs = RTCRtpSender.getCapabilities('video').codecs
+                const selectedCodecIndex = codecs.findIndex(c => c.mimeType === codec.mimeType && c.sdpFmtpLine === codec.sdpFmtpLine);
+                const selectedCodec = codecs[selectedCodecIndex];
+                codecs.splice(selectedCodecIndex, 1);
+                codecs.unshift(selectedCodec);
+                recv_transceiver.setCodecPreferences(codecs)
+                break
+            }
+        }
+
+        let offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        let resp = await fetch("recv/sdp", {
+            method: "POST",
+            body: offer.sdp
+        })
+        let answer = await resp.text()
+        pc.ontrack = (ev) => {
+            document.getElementById("remote").srcObject = ev.streams[0]
+            document.getElementById("remote").play()
+        }
+        await pc.setRemoteDescription(new RTCSessionDescription({type: "answer", sdp: answer}))
+    }
+    main()
+</script>
+</html>

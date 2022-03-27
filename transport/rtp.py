@@ -550,7 +550,7 @@ class RtcpRtpfbTwccPacket:
         content_len = len(data)  # 8 is tcc header len
         offset = 0
         count = 0
-        print("base_seq: {}, count: {}".format(base_seq_number, packet_status_count))
+        # print("base_seq: {}, count: {}".format(base_seq_number, packet_status_count))
         received_packet_status_count = 0
         chunks: List[List] = list()  # [status, delta, seq]
         while count < packet_status_count and offset < content_len:
@@ -577,7 +577,7 @@ class RtcpRtpfbTwccPacket:
                     c[1] = (data[offset] << 8) + data[offset + 1]
                     offset += 2
         except IndexError:
-            print("index error")
+            raise IndexError("index error")
         # if not content_len >= offset >= content_len - 1:
         #     raise ValueError("parse tcc feedback payload error")
 
@@ -591,7 +591,7 @@ class RtcpRtpfbTwccPacket:
                                                 received=True))
             else:
                 results.append(TwccPacketResult(t_seq=c[2]))
-
+        # print("results", results)
         return results
 
 
@@ -641,7 +641,7 @@ class RtcpRtpfbPacket:
                 for d in range(0, 16):
                     if (blp >> d) & 1:
                         lost.append(pid + d + 1)
-            print("nack: {}".format(lost))
+            # print("nack: {}".format(lost))
             return cls(fmt=fmt, ssrc=ssrc, media_ssrc=media_ssrc, lost=lost)
         elif fmt == RTCP_RTPFB_TWCC:
             return cls(fmt=fmt, ssrc=ssrc, media_ssrc=media_ssrc, twcc=RtcpRtpfbTwccPacket.parse(data[8:]))

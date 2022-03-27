@@ -98,6 +98,7 @@ class AimdRateControl:
         else:
             estimated_throughput = self.latest_estimated_throughput
         estimated_throughput_kbps = estimated_throughput / 1000
+        st = self.state
 
         # update bitrate
         if self.state == RateControlState.INCREASE:
@@ -109,7 +110,7 @@ class AimdRateControl:
                 )
                 if (
                     estimated_throughput_kbps
-                    >= self.avg_max_bitrate_kbps + 3 * sigma_kbps
+                    >= self.avg_max_bitrate_kbps + 30 * sigma_kbps
                 ):
                     self.near_max = False
                     self.avg_max_bitrate_kbps = None
@@ -138,12 +139,14 @@ class AimdRateControl:
             self._update_max_throughput_estimate(estimated_throughput_kbps)
 
             self.near_max = True
-            new_bitrate = round(0.85 * estimated_throughput)
+            new_bitrate = round(0.95 * estimated_throughput)
             self.last_change_ms = now_ms
             self.state = RateControlState.HOLD
 
         self.current_bitrate = self._clamp_bitrate(new_bitrate, estimated_throughput)
-        print("aimd, new_bitrate={}, throughput={}, state={}".format(new_bitrate, estimated_throughput, self.state))
+        print("aimd, new_bitrate={}, throughput={}, state={}, usage={}, "
+              "near_max={}".format(
+                new_bitrate, estimated_throughput, st, bandwidth_usage, self.near_max))
         return self.current_bitrate
 
     def _additive_rate_increase(self, last_ms: int, now_ms: int) -> int:
@@ -167,9 +170,9 @@ class AimdRateControl:
         bits_per_frame = self.current_bitrate / 30
         packets_per_frame = math.ceil(bits_per_frame / (8 * 1200))
         avg_packet_size_bits = bits_per_frame / packets_per_frame
-
         response_time = self.rtt + 100
-        return max(4000, int((avg_packet_size_bits * 1000) / response_time))
+        print(avg_packet_size_bits, response_time)
+        return min(4000, int((avg_packet_size_bits * 1000) / response_time))
 
     def _update_max_throughput_estimate(self, estimated_throughput_kbps) -> None:
         alpha = 0.05
@@ -573,7 +576,7 @@ class TrendlineEstimator:
         if len(self.delay_hist_) == self.WINDOW_SIZE:
             trend = self.liner_fit_slope()
         self.detect(trend, send_delta_ms, arrive_time_ms)
-        print("delta:{}, state:{}, window:{}, at:{}".format(delta_ms, self.usage, self.WINDOW_SIZE, arrive_time_ms))
+        # print("delta:{}, state:{}, window:{}, at:{}".format(delta_ms, self.usage, self.WINDOW_SIZE, arrive_time_ms))
 
     def liner_fit_slope(self) -> float:
         x_plots = [i.arrival_time_ms for i in self.delay_hist_]
@@ -590,7 +593,7 @@ class TrendlineEstimator:
             return
         modified_trend = min(self.num_of_deltas, MIN_NUM_DELTAS) * \
             trend * TrendlineEstimator.ThresholdGain
-        print("trend:{:.2f}, threshold:{}, at:{}".format(modified_trend, self.threshold, arrival_time_ms))
+        # print("trend:{:.2f}, threshold:{}, at:{}".format(modified_trend, self.threshold, arrival_time_ms))
 
         if modified_trend > self.threshold:
             if self.time_over_using is None:
@@ -651,7 +654,7 @@ class RateCounter:
     Rate counter, which stores the amount received in 1ms buckets.
     """
 
-    def __init__(self, window_size: int, scale: int = 8000) -> None:
+    def __init__(self, window_size: int = 1000, scale: int = 8000) -> None:
         self._origin_index = 0
         self._origin_ms: Optional[int] = None
         self._scale = scale
@@ -772,7 +775,7 @@ class RemoteBitrateEstimator:
 
 class SendSideDelayBasedBitrateEstimator:
     def __init__(self) -> None:
-        self.incoming_bitrate = RateCounter(1000, 8000)
+        self.incoming_bitrate = RateCounter(2000, 8000)
         self.incoming_bitrate_initialized = True
         self.inter_arrival = InterArrivalMillisecond(TIMESTAMP_GROUP_LENGTH_MS)
         self.estimator = TrendlineEstimator()
@@ -804,9 +807,9 @@ class SendSideDelayBasedBitrateEstimator:
         deltas = self.inter_arrival.compute_deltas(
             send_time_ms, arrival_time_ms, payload_size
         )
-        print("send_ms:{}, recv_ms:{}".format(send_time_ms, arrival_time_ms))
+        # print("send_ms:{}, recv_ms:{}".format(send_time_ms, arrival_time_ms))
         if deltas is not None:
-            print("send_delta:{}, recv_delta:{}".format(deltas.send_time_delta, deltas.arrival_time_delta))
+            # print("send_delta:{}, recv_delta:{}".format(deltas.send_time_delta, deltas.arrival_time_delta))
 
             self.estimator.update(
                 recv_delta_ms=deltas.arrival_time_delta,

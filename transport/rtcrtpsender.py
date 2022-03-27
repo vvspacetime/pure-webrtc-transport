@@ -238,6 +238,8 @@ class RTCRtpSender:
             await asyncio.gather(self.__rtp_exited.wait(), self.__rtcp_exited.wait())
 
     async def _handle_rtcp_packet(self, packet):
+        # print("twcc handler")
+
         if isinstance(packet, (RtcpRrPacket, RtcpSrPacket)):
             for report in filter(lambda x: x.ssrc == self._ssrc, packet.reports):
                 # estimate round-trip time
@@ -272,12 +274,15 @@ class RTCRtpSender:
                 for seq in packet.lost:
                     await self._retransmit(seq)
             if packet.fmt == RTCP_RTPFB_TWCC:
+                # print("twcc sender")
                 for fb in packet.twcc:
                     pkt = self.get_packet_by_transport_sequence_number(fb.t_seq)
                     if pkt is not None:
                         fb.send_ms = pkt.send_ms
-                        fb.payload_size = pkt.total_size
+                        # NOTES: 使用payload长度, 不含header
+                        fb.payload_size = len(pkt.payload)
                 if self.__track and isinstance(self.__track, LocalStreamTrack):
+                    # print("put to queue")
                     await self.__track._reverse_queue.put(packet)
 
 
@@ -446,8 +451,7 @@ class RTCRtpSender:
             del self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
             if pkt.extensions.transport_sequence_number == transport_sequence_number:
                 return pkt
-        else:
-            logger.warning("transport sequence number not found in history, seq={}".format(transport_sequence_number))
+        logger.debug("transport sequence number not found in history, seq={}".format(transport_sequence_number))
         return None
 
     def __log_debug(self, msg: str, *args) -> None:

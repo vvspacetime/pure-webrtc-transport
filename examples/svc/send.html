@@ -1,6 +1,5 @@
 <html>
-<video id="local"></video>
-<video id="remote"></video>
+<video id="local" height="270" width="480"></video>
 <script>
     async function main() {
         let localMediaStream = await navigator.mediaDevices.getUserMedia({video: { frameRate: 30}})
@@ -9,8 +8,7 @@
 
 
         let pc = new RTCPeerConnection()
-        let send_transceiver = pc.addTransceiver(localMediaStream.getVideoTracks()[0], { direction: "sendonly", sendEncodings: [{scalabilityMode: "L3T3_KEY"}] })
-        let recv_transceiver = pc.addTransceiver("video", { direction: "recvonly" })
+        let send_transceiver = pc.addTransceiver(localMediaStream.getVideoTracks()[0], { direction: "sendonly", sendEncodings: [{scalabilityMode: "L3T3_KEY"}],  })
 
         for (let codec of RTCRtpSender.getCapabilities('video').codecs) {
             console.log(codec)
@@ -21,24 +19,24 @@
                 const selectedCodec = codecs[selectedCodecIndex];
                 codecs.splice(selectedCodecIndex, 1);
                 codecs.unshift(selectedCodec);
+                const ulpfecIndex = codecs.findIndex(c => c.mimeType === "ulpfec");
+                codecs.splice(ulpfecIndex, 1)
 
                 send_transceiver.setCodecPreferences(codecs)
-                recv_transceiver.setCodecPreferences(codecs)
                 break
             }
         }
+        let params = send_transceiver.sender.getParameters()
+        params.encodings[0].maxBitrate = 1_000_000
+        await send_transceiver.sender.setParameters(params)
 
         let offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
-        let resp = await fetch("sdp", {
+        let resp = await fetch("send/sdp", {
             method: "POST",
             body: offer.sdp
         })
         let answer = await resp.text()
-        pc.ontrack = (ev) => {
-            document.getElementById("remote").srcObject = ev.streams[0]
-            document.getElementById("remote").play()
-        }
         await pc.setRemoteDescription(new RTCSessionDescription({type: "answer", sdp: answer}))
     }
     main()

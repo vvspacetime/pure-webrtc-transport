@@ -561,15 +561,20 @@ class RTCDtlsTransport(AsyncIOEventEmitter):
         return report
 
     async def _handle_rtcp_data(self, data: bytes) -> None:
+        # print("twcc: parse start")
         try:
             packets = RtcpPacket.parse(data)
         except ValueError as exc:
             self.__log_warning("x RTCP parsing failed: %s", exc)
             return
 
+        # print("twcc: parse end, packet len:{}".format(len(packets)))
         for packet in packets:
             # route RTCP packet
+            # if isinstance(packet, RtcpRtpfbPacket):
+                # print("twcc: rtp fb, media_ssrc:{}".format(packet.media_ssrc))
             for recipient in self._rtp_router.route_rtcp(packet):
+                # print("twcc, route to {}".format(recipient))
                 await recipient._handle_rtcp_packet(packet)
 
     async def _handle_rtp_data(self, data: bytes, arrival_time_ms: int) -> None:
@@ -655,6 +660,7 @@ class RTCDtlsTransport(AsyncIOEventEmitter):
     def _register_rtp_sender(self, sender, parameters: RTCRtpSendParameters) -> None:
         self._rtp_header_extensions_map.configure(parameters)
         self._rtp_router.register_sender(sender, ssrc=sender._ssrc)
+        self._rtp_router.register_sender(sender, ssrc=sender._rtx_ssrc)
 
     async def _send_data(self, data: bytes) -> None:
         if self._state != State.CONNECTED:
