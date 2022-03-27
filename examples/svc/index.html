@@ -16,15 +16,21 @@
             console.log(codec)
             if (codec.mimeType.includes("VP9")) {
                 console.log("select codec", codec)
-                send_transceiver.setCodecPreferences([codec])
-                recv_transceiver.setCodecPreferences([codec])
+                let codecs = RTCRtpSender.getCapabilities('video').codecs
+                const selectedCodecIndex = codecs.findIndex(c => c.mimeType === codec.mimeType && c.sdpFmtpLine === codec.sdpFmtpLine);
+                const selectedCodec = codecs[selectedCodecIndex];
+                codecs.splice(selectedCodecIndex, 1);
+                codecs.unshift(selectedCodec);
+
+                send_transceiver.setCodecPreferences(codecs)
+                recv_transceiver.setCodecPreferences(codecs)
                 break
             }
         }
 
         let offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
-        let resp = await fetch("http://127.0.0.1:8989/sdp", {
+        let resp = await fetch("sdp", {
             method: "POST",
             body: offer.sdp
         })

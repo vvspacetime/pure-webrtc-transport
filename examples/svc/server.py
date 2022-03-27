@@ -1,12 +1,11 @@
 import asyncio
 from transport import RTCPeerConnection, LocalStreamTrack, MediaStreamTrack, RtpPacket, RTCSessionDescription, codecs, \
-    RTCConfiguration
+    RTCConfiguration, rtp
 from aiohttp import web, web_request, web_response
 import logging
 from content import Vp8PayloadDescriptor, Vp9PayloadDescriptor
 from datetime import datetime
 from policy import SendSideDelayBasedBitrateEstimator
-
 
 pc = RTCPeerConnection()
 codecs.init_codecs()
@@ -18,30 +17,35 @@ async def handle(request: web_request.Request):
     local_video_track = LocalStreamTrack(kind="video")
     pc.addTransceiver(local_video_track, direction="sendonly")
 
-    remote_audio_track = None
     remote_video_track = None
     bwe = SendSideDelayBasedBitrateEstimator()
 
     def on_remote_track(track: MediaStreamTrack):
-        nonlocal remote_audio_track, remote_video_track
+        nonlocal remote_video_track
         print("on track", track.kind)
-        if track.kind == "audio":
-            remote_audio_track = track
-        else:
+        if track.kind == "video":
             remote_video_track = track
 
     def read_feedback_loop(local_track: LocalStreamTrack):
+        nonlocal remote_video_track
+
         async def func():
             while True:
-                tcc_results = await local_track.read_feedback()
-                # print("result: {}", tcc_results)
-                tcc_results.sort(key=lambda e: e.receive_ms)
-                for res in tcc_results:
-                    print("+++++++++++++++++++++++")
-                    bitrate = bwe.add(res.receive_ms, res.send_ms, res.payload_size)
-                    if bitrate:
-                        print("bitrate={}, recv_time={}".format(bitrate, res.receive_ms))
-                    print("-----------------------")
+                pkt = await local_track.read_feedback()
+                if isinstance(pkt, rtp.RtcpPsfbPacket) and pkt.fmt == rtp.RTCP_PSFB_PLI:
+                    print("rtcp pli")
+                    await remote_video_track.send_feedback(pkt)
+                elif isinstance(pkt, rtp.RtcpRtpfbPacket):
+                    print("rtcp twcc, result: {}".format(pkt.twcc))
+                    pkt.twcc.sort(key=lambda e: e.receive_ms)
+                    for res in pkt.twcc:
+                        if res.received and res.send_ms:
+                            print("+++++++++++++++++++++++")
+                            bitrate = bwe.add(res.receive_ms, res.send_ms, res.payload_size)
+                            if bitrate:
+                                print("bitrate={}, recv_time={}".format(bitrate, res.receive_ms))
+                            print("-----------------------")
+
         return func
 
     def echo(local_track: LocalStreamTrack, remote_track: MediaStreamTrack):

@@ -69,7 +69,7 @@ class LocalStreamTrack(MediaStreamTrack):
             raise MediaStreamError
         return pkt
 
-    async def read_feedback(self) -> List[TwccPacketResult]:
+    async def read_feedback(self) -> List[AnyRtcpPacket]:
         results = await self._reverse_queue.get()
         if results is None:
             raise MediaStreamError
@@ -278,11 +278,13 @@ class RTCRtpSender:
                         fb.send_ms = pkt.send_ms
                         fb.payload_size = pkt.total_size
                 if self.__track and isinstance(self.__track, LocalStreamTrack):
-                    await self.__track._reverse_queue.put(packet.twcc)
+                    await self.__track._reverse_queue.put(packet)
 
 
         elif isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_PLI:
             self._send_keyframe()
+            if self.__track and isinstance(self.__track, LocalStreamTrack):
+                await self.__track._reverse_queue.put(packet)
         elif isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_APP:
             try:
                 bitrate, ssrcs = unpack_remb_fci(packet.fci)
@@ -438,10 +440,14 @@ class RTCRtpSender:
         self.__tcc_history[packet.extensions.transport_sequence_number % TCC_HISTORY_SIZE] = packet
 
     def get_packet_by_transport_sequence_number(self, transport_sequence_number: int) -> Optional[RtpPacket]:
-        pkt = self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
-        del self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
-        if pkt.extensions.transport_sequence_number == transport_sequence_number:
-            return pkt
+        index = transport_sequence_number % TCC_HISTORY_SIZE
+        if index in self.__tcc_history:
+            pkt = self.__tcc_history[index]
+            del self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
+            if pkt.extensions.transport_sequence_number == transport_sequence_number:
+                return pkt
+        else:
+            logger.warning("transport sequence number not found in history, seq={}".format(transport_sequence_number))
         return None
 
     def __log_debug(self, msg: str, *args) -> None:

@@ -444,12 +444,12 @@ class RtcpRrPacket:
 # 3 bytes
 def parse_reference_time(data: bytes):
     time_24bit = (data[0] << 16) + (data[1] << 8) + data[2]
-    # minus_sign = bool(data[0] & 0x80)
-    # if minus_sign:
-    #     return -((~(time_24bit - 1)) & 0x7FFFFF)
-    # else:
-    #     return time_24bit
-    return time_24bit
+    minus_sign = bool(data[0] & 0x80)
+    # 1000 = -8 1000 - 1 = 0111 ~0111 = FFFF1000  FFFF1000 & 1111 = 1000 1000 = 8
+    if minus_sign:
+        return -((~(time_24bit - 1)) & 0xFFFFFF)
+    else:
+        return time_24bit
 
 
 @dataclass
@@ -514,7 +514,7 @@ class RunLengthChunk(Chunk):
     def __init__(self, data: bytes):
         self.status_list = []
         status = Chunk.ChunkStatus((data[0] >> 5) & 0x03)
-        count = (data[0] & 0x1F << 8) + data[1]
+        count = ((data[0] & 0x1F) << 8) + data[1]
         self.status_list = []
         for _ in range(count):
             self.status_list.append(status)
@@ -533,6 +533,8 @@ class TwccPacketResult:
         self.t_seq = t_seq
         self.receive_ms = receive_ms
         self.received = received
+        self.send_ms = None
+        self.payload_size = None
 
 
 @dataclass
@@ -561,17 +563,21 @@ class RtcpRtpfbTwccPacket:
                 chunks.append([s, 0, 0])
 
         seq = base_seq_number
-        for c in chunks:
-            c[2] = seq
-            seq += 1
-            if c[0] == Chunk.ChunkStatus.NOT_RECEIVED:
-                continue
-            elif c[0] == Chunk.ChunkStatus.SMALL_DELTA:
-                c[1] = data[offset]
-                offset += 1
-            elif c[0] == Chunk.ChunkStatus.LARGE_DELTA:
-                c[1] = (data[offset] << 8) + data[offset + 1]
-                offset += 2
+
+        try:
+            for c in chunks:
+                c[2] = seq
+                seq += 1
+                if c[0] == Chunk.ChunkStatus.NOT_RECEIVED:
+                    continue
+                elif c[0] == Chunk.ChunkStatus.SMALL_DELTA:
+                    c[1] = data[offset]
+                    offset += 1
+                elif c[0] == Chunk.ChunkStatus.LARGE_DELTA:
+                    c[1] = (data[offset] << 8) + data[offset + 1]
+                    offset += 2
+        except IndexError:
+            print("index error")
         # if not content_len >= offset >= content_len - 1:
         #     raise ValueError("parse tcc feedback payload error")
 

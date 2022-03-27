@@ -120,6 +120,7 @@ class RemoteStreamTrack(MediaStreamTrack):
         if id is not None:
             self._id = id
         self._queue: asyncio.Queue = asyncio.Queue()
+        self._reverse_queue: asyncio.Queue = asyncio.Queue()
 
     async def recv(self) -> RtpPacket:
         """
@@ -133,6 +134,9 @@ class RemoteStreamTrack(MediaStreamTrack):
             self.stop()
             raise MediaStreamError
         return pkt
+
+    async def send_feedback(self, packet: AnyRtcpPacket):
+        await self._reverse_queue.put(packet)
 
 
 class TimestampMapper:
@@ -200,6 +204,7 @@ class RTCRtpReceiver:
         self.__rtcp_exited = asyncio.Event()
         self.__rtcp_started = asyncio.Event()
         self.__rtcp_task: Optional[asyncio.Future[None]] = None
+        self.__remote_track_rtcp_task: Optional[asyncio.Future[None]] = None
         self.__rtx_ssrc: Dict[int, int] = {}
         self.__started = False
         self.__stats = RTCStatsReport()
@@ -294,6 +299,7 @@ class RTCRtpReceiver:
             # NOTES: rtp接收路由设置, 当ssrc或pt相同时, 路由到这个receiver
             self.__transport._register_rtp_receiver(self, parameters)
             self.__rtcp_task = asyncio.ensure_future(self._run_rtcp())
+            self.__remote_track_rtcp_task = asyncio.ensure_future(self._run_remote_track_rtcp())
             self.__started = True
 
     def setTransport(self, transport: RTCDtlsTransport) -> None:
@@ -385,6 +391,23 @@ class RTCRtpReceiver:
         # Notes: 这里省略了REMB计算，PLI请求，NACK请求和组帧，直接将packet传递给track
         # TODO: check it
         await self._track._queue.put(packet)
+
+    async def _run_remote_track_rtcp(self) -> None:
+        try:
+            while True:
+                if self._track and isinstance(self._track, RemoteStreamTrack):
+                    pkt = await self._track._reverse_queue.get()
+                    if isinstance(pkt, RtcpPsfbPacket):
+                        if pkt.fmt == RTCP_PSFB_PLI:
+                            for ssrc, ts in self.__active_ssrc.items():
+                                await self._send_rtcp_pli(ssrc)
+                            print("send pli to {}".format(self.__active_ssrc))
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print("run remote track stopped exception")
+        finally:
+            print("run remote track stopped")
 
     async def _run_rtcp(self) -> None:
         self.__log_debug("- RTCP started")

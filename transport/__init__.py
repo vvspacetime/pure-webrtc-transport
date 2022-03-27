@@ -43,7 +43,7 @@ from .stats import (
     RTCStatsReport,
     RTCTransportStats,
 )
-from .rtp import RtpPacket
+from .rtp import *
 
 # Set default logging handler to avoid "No handler found" warnings.
 logging.getLogger(__name__).addHandler(logging.NullHandler())

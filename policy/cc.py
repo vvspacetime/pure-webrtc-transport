@@ -524,7 +524,7 @@ class OveruseEstimator:
 
 class TrendlineEstimator:
     SMOOTHING_COEFF = 0.9
-    WINDOW_SIZE = 100
+    WINDOW_SIZE = 50
     ThresholdGain = 4.0
     OverUsingTimeThreshold = 10  # ms
 
@@ -573,7 +573,7 @@ class TrendlineEstimator:
         if len(self.delay_hist_) == self.WINDOW_SIZE:
             trend = self.liner_fit_slope()
         self.detect(trend, send_delta_ms, arrive_time_ms)
-        print("delta:{}, state:{}, at:{}".format(delta_ms, self.usage, arrive_time_ms))
+        print("delta:{}, state:{}, window:{}, at:{}".format(delta_ms, self.usage, self.WINDOW_SIZE, arrive_time_ms))
 
     def liner_fit_slope(self) -> float:
         x_plots = [i.arrival_time_ms for i in self.delay_hist_]
@@ -590,7 +590,7 @@ class TrendlineEstimator:
             return
         modified_trend = min(self.num_of_deltas, MIN_NUM_DELTAS) * \
             trend * TrendlineEstimator.ThresholdGain
-        print("trend:{:.2f}, at:{}".format(modified_trend, arrival_time_ms))
+        print("trend:{:.2f}, threshold:{}, at:{}".format(modified_trend, self.threshold, arrival_time_ms))
 
         if modified_trend > self.threshold:
             if self.time_over_using is None:
@@ -788,7 +788,8 @@ class SendSideDelayBasedBitrateEstimator:
 
         # must add ordered arrival_time_ms
         if self.last_arrival_time_ms > arrival_time_ms:
-            raise ValueError("arrival time must be ordered")
+            raise ValueError("arrival time must be ordered, last={}, this={}".format(
+                self.last_arrival_time_ms, arrival_time_ms))
 
         update_estimate = False
         # update incoming bitrate
