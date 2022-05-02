@@ -24,7 +24,7 @@ class Pacer:
         return await self.output_queue.get()
 
     def update_bitrate(self, bitrate: int):
-        self.target_bitrate = bitrate * 1.05
+        self.target_bitrate = bitrate * 1.1
         self.max_bytes_in_budget = 0.5 * self.target_bitrate / 8
         self.bytes_remaining = min(max(-self.max_bytes_in_budget, self.bytes_remaining), self.max_bytes_in_budget)
 

@@ -2,7 +2,7 @@
 <video id="local" height="270" width="480"></video>
 <script>
     async function main() {
-        let localMediaStream = await navigator.mediaDevices.getUserMedia({video: { frameRate: 30}})
+        let localMediaStream = await navigator.mediaDevices.getUserMedia({video: { frameRate: 30, width: 640, height: 480}})
         document.getElementById("local").srcObject = localMediaStream
         document.getElementById("local").play()
 
@@ -26,9 +26,9 @@
                 break
             }
         }
-        let params = send_transceiver.sender.getParameters()
-        params.encodings[0].maxBitrate = 1_000_000
-        await send_transceiver.sender.setParameters(params)
+        // let params = send_transceiver.sender.getParameters()
+        // params.encodings[0].maxBitrate = 1_000_000
+        // await send_transceiver.sender.setParameters(params)
 
         let offer = await pc.createOffer()
         await pc.setLocalDescription(offer)

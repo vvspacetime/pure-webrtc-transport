@@ -445,11 +445,23 @@ class RtcpRrPacket:
 def parse_reference_time(data: bytes):
     time_24bit = (data[0] << 16) + (data[1] << 8) + data[2]
     minus_sign = bool(data[0] & 0x80)
-    # 1000 = -8 1000 - 1 = 0111 ~0111 = FFFF1000  FFFF1000 & 1111 = 1000 1000 = 8
+    # 1000 = -8; 1000 - 1 = 0111; ~0111 = FFFF1000;  FFFF1000 & 1111 = 1000; 1000 = 8
     if minus_sign:
         return -((~(time_24bit - 1)) & 0xFFFFFF)
     else:
         return time_24bit
+
+
+def parse_signed_bytes(data: bytes):
+    bytes_size = len(data)
+    bits = 0
+    for i in range(bytes_size):
+        bits += data[bytes_size - i - 1] << (8 * i)
+    minus_sign = bool(data[0] & 0x80)
+    if minus_sign:
+        return -((~(bits - 1)) & ((1 << (8 * bytes_size)) - 1))
+    else:
+        return bits
 
 
 @dataclass
@@ -543,14 +555,14 @@ class RtcpRtpfbTwccPacket:
     def parse(cls, data: bytes) -> List[TwccPacketResult]:
         base_seq_number, = unpack("!H", data[0:2])
         packet_status_count, = unpack("!H", data[2:4])
-        reference_time = parse_reference_time(data[4: 7])
+        reference_time = parse_signed_bytes(data[4: 7])
         feedback_packet_count = data[7]
 
         data = data[8:]
         content_len = len(data)  # 8 is tcc header len
         offset = 0
         count = 0
-        # print("base_seq: {}, count: {}".format(base_seq_number, packet_status_count))
+        # print("base_seq: {}, count: {}, ref: {}".format(base_seq_number, packet_status_count, reference_time))
         received_packet_status_count = 0
         chunks: List[List] = list()  # [status, delta, seq]
         while count < packet_status_count and offset < content_len:
@@ -574,7 +586,7 @@ class RtcpRtpfbTwccPacket:
                     c[1] = data[offset]
                     offset += 1
                 elif c[0] == Chunk.ChunkStatus.LARGE_DELTA:
-                    c[1] = (data[offset] << 8) + data[offset + 1]
+                    c[1] = parse_signed_bytes(data[offset:offset+2])
                     offset += 2
         except IndexError:
             raise IndexError("index error")

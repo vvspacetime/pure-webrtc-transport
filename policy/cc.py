@@ -110,7 +110,7 @@ class AimdRateControl:
                 )
                 if (
                     estimated_throughput_kbps
-                    >= self.avg_max_bitrate_kbps + 30 * sigma_kbps
+                    >= self.avg_max_bitrate_kbps + 3 * sigma_kbps
                 ):
                     self.near_max = False
                     self.avg_max_bitrate_kbps = None
@@ -555,6 +555,8 @@ class TrendlineEstimator:
 
     def update(self, recv_delta_ms: int, send_delta_ms: int,
                send_time_ms: int, arrive_time_ms: int):
+        if recv_delta_ms > 500:
+            raise ValueError("recv delta too big")
         delta_ms = recv_delta_ms - send_delta_ms
         self.num_of_deltas += 1
         self.num_of_deltas = min(self.num_of_deltas, DELTA_COUNTER_MAX)
@@ -794,6 +796,7 @@ class SendSideDelayBasedBitrateEstimator:
             raise ValueError("arrival time must be ordered, last={}, this={}".format(
                 self.last_arrival_time_ms, arrival_time_ms))
 
+        self.last_arrival_time_ms = arrival_time_ms
         update_estimate = False
         # update incoming bitrate
         if self.incoming_bitrate.rate(arrival_time_ms) is not None:

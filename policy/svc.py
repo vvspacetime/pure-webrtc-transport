@@ -126,5 +126,5 @@ class TemporalLayerFilter:
         for info in self.ordered_layers:
             ss += info.str(now_ms)
             ss += ", "
-        print("Print actual={}, short={}, layers=({})".format(
-            self.tx_rate.rate(now_ms), self.short_tx_rate.rate(now_ms), ss))
+        # print("Print avail={} actual={}, short={}, layers=({})".format(
+        #     self.available_bitrate, self.tx_rate.rate(now_ms), self.short_tx_rate.rate(now_ms), ss))

@@ -41,8 +41,10 @@ class SvcRelayer:
 
             if len(packet.payload) != 0 and packet.payload_type == 98:
                 content = Vp9PayloadDescriptor.parse(packet.payload)
-                do_pass = self.filter.add_video_sample(flow_id=0, layer=content.tid, data_bytes=len(packet.payload),
-                                                       now_ms=clock.current_ms())
+                do_pass = True
+                if content.tid:
+                    do_pass = self.filter.add_video_sample(flow_id=0, layer=content.tid, data_bytes=len(packet.payload),
+                                                           now_ms=clock.current_ms())
                 if do_pass:
                     self.pacer.enqueue(RtpPacket(timestamp=packet.timestamp,
                                                  payload=packet.payload, marker=packet.marker))
@@ -60,16 +62,18 @@ class SvcRelayer:
                     # print("rtcp pli")
                     await self.rx_track.send_feedback(pkt)
                 elif isinstance(pkt, rtp.RtcpRtpfbPacket):
-                    # print("rtcp twcc, result: {}".format(pkt.twcc))
+                    # print("rtcp twcc, ssrc={}, result={}".format(pkt.ssrc, pkt.twcc))
                     pkt.twcc.sort(key=lambda e: e.receive_ms)
                     for res in pkt.twcc:
                         if res.received and res.send_ms:
                             # print("=======================")
                             bitrate = self.bwe.add(res.receive_ms, res.send_ms, res.payload_size)
+                            # print("seq={}, recv_time={}".format(res.t_seq, res.receive_ms))
+
                             if bitrate:
                                 # print("bitrate={}, recv_time={}".format(bitrate, res.receive_ms))
                                 self.filter.update_available_bitrate(int(bitrate))
-                                self.pacer.update_bitrate(int(bitrate))
+                                self.pacer.update_bitrate(3000000)
                             # print("=======================\n")
         except Exception as e:
             print("read feedback loop stopped: {}".format(traceback.format_exc()))

@@ -276,11 +276,12 @@ class RTCRtpSender:
             if packet.fmt == RTCP_RTPFB_TWCC:
                 # print("twcc sender")
                 for fb in packet.twcc:
-                    pkt = self.get_packet_by_transport_sequence_number(fb.t_seq)
-                    if pkt is not None:
-                        fb.send_ms = pkt.send_ms
-                        # NOTES: 使用payload长度, 不含header
-                        fb.payload_size = len(pkt.payload)
+                    if fb.received:
+                        pkt = self.get_packet_by_transport_sequence_number(fb.t_seq)
+                        if pkt is not None:
+                            fb.send_ms = pkt.send_ms
+                            # NOTES: 使用payload长度, 不含header
+                            fb.payload_size = len(pkt.payload)
                 if self.__track and isinstance(self.__track, LocalStreamTrack):
                     # print("put to queue")
                     await self.__track._reverse_queue.put(packet)
@@ -448,7 +449,7 @@ class RTCRtpSender:
         index = transport_sequence_number % TCC_HISTORY_SIZE
         if index in self.__tcc_history:
             pkt = self.__tcc_history[index]
-            del self.__tcc_history[transport_sequence_number % TCC_HISTORY_SIZE]
+            del self.__tcc_history[index]
             if pkt.extensions.transport_sequence_number == transport_sequence_number:
                 return pkt
         logger.debug("transport sequence number not found in history, seq={}".format(transport_sequence_number))
