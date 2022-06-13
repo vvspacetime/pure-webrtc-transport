@@ -26,9 +26,9 @@
                 break
             }
         }
-        // let params = send_transceiver.sender.getParameters()
-        // params.encodings[0].maxBitrate = 1_000_000
-        // await send_transceiver.sender.setParameters(params)
+        let params = send_transceiver.sender.getParameters()
+        params.encodings[0].maxBitrate = 1_500_000
+        await send_transceiver.sender.setParameters(params)
 
         let offer = await pc.createOffer()
         await pc.setLocalDescription(offer)

@@ -20,13 +20,15 @@ class VideoTemporalLayerInfo:
 
 
 AVAILABLE_BANDWIDTH_USAGE = 0.98
-AVAILABLE_BANDWIDTH_BURST_USAGE = 1.4
-DEFAULT_FRAME_SIZE = 10  # kilobytes
+AVAILABLE_BANDWIDTH_BURST_USAGE = 1.1
+DEFAULT_FRAME_SIZE = 5  # kilobytes
 LAYERS_PRINT_INTERVAL_MS = 1000
 
 
 class TemporalLayerFilter:
-    def __init__(self):
+    def __init__(self,
+                 usage_coef=AVAILABLE_BANDWIDTH_USAGE,
+                 burst_usage_coef=AVAILABLE_BANDWIDTH_BURST_USAGE):
         self.layers: Dict[int, Dict[int, VideoTemporalLayerInfo]] = dict()  # flow: {layer: info}
         self.ordered_layers: List[VideoTemporalLayerInfo] = list()
         self.tx_rate = RateCounter(window_size=2000)
@@ -35,6 +37,8 @@ class TemporalLayerFilter:
         self.available_bitrate = None
         self.partial_passing_ = False
         self.last_print_ms = None
+        self.usage_coef = usage_coef
+        self.burst_usage_coef = burst_usage_coef
 
     def update_available_bitrate(self, bitrate: int):
         self.available_bitrate = bitrate
@@ -84,10 +88,10 @@ class TemporalLayerFilter:
                 do_pass = False
                 break
             # partial
-            if actual + data_bytes * 8.0 > total_available:
+            if self.usage_coef and actual + data_bytes * 8.0 > total_available * self.usage_coef:
                 do_pass = False
                 break
-            if actual_short + data_bytes * 8.0 > total_available * AVAILABLE_BANDWIDTH_BURST_USAGE:
+            if self.burst_usage_coef and actual_short + data_bytes * 8.0 > total_available * self.burst_usage_coef:
                 do_pass = False
                 break
             if actual + DEFAULT_FRAME_SIZE * 8000 < total_available:
@@ -118,7 +122,7 @@ class TemporalLayerFilter:
 
     def print_layers(self, now_ms: int):
         if (self.last_print_ms is not None
-                and (now_ms - self.last_print_ms < LAYERS_PRINT_INTERVAL_MS)):
+            and (now_ms - self.last_print_ms < LAYERS_PRINT_INTERVAL_MS)):
             return
         self.last_print_ms = now_ms
 

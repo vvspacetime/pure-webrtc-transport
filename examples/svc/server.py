@@ -42,7 +42,8 @@ class SvcRelayer:
             if len(packet.payload) != 0 and packet.payload_type == 98:
                 content = Vp9PayloadDescriptor.parse(packet.payload)
                 do_pass = True
-                if content.tid:
+                print("{},{},{}".format(clock.current_ms(), content.tid, len(packet.payload)))
+                if content.tid is not None:
                     do_pass = self.filter.add_video_sample(flow_id=0, layer=content.tid, data_bytes=len(packet.payload),
                                                            now_ms=clock.current_ms())
                 if do_pass:
