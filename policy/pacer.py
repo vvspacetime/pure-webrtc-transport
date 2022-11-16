@@ -1,8 +1,7 @@
-from asyncio import Queue
 import asyncio
+from asyncio import Queue
 from collections import deque
 from typing import Deque
-from transport import clock
 
 from transport import RtpPacket
 
@@ -11,7 +10,7 @@ class Pacer:
     def __init__(self):
         self.input_queue: Deque[RtpPacket] = deque()
         self.output_queue = Queue()
-        self.target_bitrate = 1000000 # 1m
+        self.target_bitrate = 1000000  # 1m
         self.bytes_remaining = 0
         self.max_bytes_in_budget = 0
         self.update_bitrate(self.target_bitrate)

@@ -1,20 +1,21 @@
 import asyncio
-from transport import RTCPeerConnection, LocalStreamTrack, MediaStreamTrack, RtpPacket, RTCSessionDescription, codecs, \
-    RTCConfiguration, rtp, RemoteStreamTrack, clock
-from aiohttp import web, web_request, web_response
 import logging
-from content import Vp8PayloadDescriptor, Vp9PayloadDescriptor
-from datetime import datetime
-from policy import SendSideDelayBasedBitrateEstimator, TemporalLayerFilter, Pacer
-from typing import Optional
 import traceback
+from typing import Optional
+
+from aiohttp import web, web_request
+
+from content import Vp9PayloadDescriptor
+from policy import SendSideDelayBasedBitrateEstimator, TemporalLayerFilter, Pacer
+from transport import RTCPeerConnection, LocalStreamTrack, MediaStreamTrack, RtpPacket, RTCSessionDescription, codecs, \
+    rtp, RemoteStreamTrack, clock
 
 pc = RTCPeerConnection()
 codecs.init_codecs()
 logging.basicConfig(level=logging.WARNING)
 
 
-class SvcRelayer:
+class SvcTransponder:
     def __init__(self):
         self.rx_pc = RTCPeerConnection()
         self.tx_pc = RTCPeerConnection()
@@ -74,7 +75,7 @@ class SvcRelayer:
                             if bitrate:
                                 # print("bitrate={}, recv_time={}".format(bitrate, res.receive_ms))
                                 self.filter.update_available_bitrate(int(bitrate))
-                                self.pacer.update_bitrate(3000000)
+                                self.pacer.update_bitrate(bitrate)
                             # print("=======================\n")
         except Exception as e:
             print("read feedback loop stopped: {}".format(traceback.format_exc()))
@@ -129,9 +130,9 @@ async def recv_index(request):
 
 
 app = web.Application()
-svc_relayer = SvcRelayer()
-app.add_routes([web.post("/send/sdp", handler=svc_relayer.handle_send_side_sdp),
-                web.post("/recv/sdp", handler=svc_relayer.handle_recv_side_sdp),
+svc_transponder = SvcTransponder()
+app.add_routes([web.post("/send/sdp", handler=svc_transponder.handle_send_side_sdp),
+                web.post("/recv/sdp", handler=svc_transponder.handle_recv_side_sdp),
                 web.get("/send", handler=send_index),
                 web.get("/recv", handler=recv_index)])
 if __name__ == "__main__":

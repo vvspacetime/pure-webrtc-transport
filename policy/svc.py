@@ -21,7 +21,7 @@ class VideoTemporalLayerInfo:
 
 AVAILABLE_BANDWIDTH_USAGE = 0.98
 AVAILABLE_BANDWIDTH_BURST_USAGE = 1.1
-DEFAULT_FRAME_SIZE = 5  # kilobytes
+DEFAULT_FRAME_SIZE_KB = 5  # kilobytes
 LAYERS_PRINT_INTERVAL_MS = 1000
 
 
@@ -94,7 +94,7 @@ class TemporalLayerFilter:
             if self.burst_usage_coef and actual_short + data_bytes * 8.0 > total_available * self.burst_usage_coef:
                 do_pass = False
                 break
-            if actual + DEFAULT_FRAME_SIZE * 8000 < total_available:
+            if actual + DEFAULT_FRAME_SIZE_KB * 8000 < total_available:
                 do_pass = True
                 do_partial_pass = True
                 break
@@ -121,8 +121,7 @@ class TemporalLayerFilter:
         self.ordered_layers.sort(key=lambda x: (x.flow_id, x.temporal_layer))
 
     def print_layers(self, now_ms: int):
-        if (self.last_print_ms is not None
-            and (now_ms - self.last_print_ms < LAYERS_PRINT_INTERVAL_MS)):
+        if self.last_print_ms is not None and now_ms - self.last_print_ms < LAYERS_PRINT_INTERVAL_MS:
             return
         self.last_print_ms = now_ms
 
