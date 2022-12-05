@@ -29,20 +29,20 @@ class Pacer:
 
     async def run_loop(self):
         while True:
-            self.add_budget((self.target_bitrate / 8) * 0.005)
+            self.__add_budget((self.target_bitrate / 8) * 0.005)
             # print("{}, remain={}".format(clock.current_ms(), self.bytes_remaining))
             while self.bytes_remaining > 0 and len(self.input_queue) > 0:
                 pkt = self.input_queue.popleft()
                 await self.output_queue.put(pkt)
-                self.use_budget(len(pkt.payload))
+                self.__use_budget(len(pkt.payload))
             # print("{}, remain={}".format(clock.current_ms(), self.bytes_remaining))
             await asyncio.sleep(0.005)
 
-    def add_budget(self, data_bytes):
+    def __add_budget(self, data_bytes):
         if self.bytes_remaining < 0:
             self.bytes_remaining = min(self.bytes_remaining + data_bytes, self.max_bytes_in_budget)
         else:
-            self.bytes_remaining = min(data_bytes, self.max_bytes_in_budget)
+            self.bytes_remaining = min(data_bytes, self.max_bytes_in_budget)  # no accumulate
 
-    def use_budget(self, data_bytes):
+    def __use_budget(self, data_bytes):
         self.bytes_remaining = max(self.bytes_remaining - data_bytes, -self.max_bytes_in_budget)

@@ -51,7 +51,7 @@ class LocalStreamTrack(MediaStreamTrack):
         if id is not None:
             self._id = id
         self._queue: asyncio.Queue = asyncio.Queue()
-        self._reverse_queue: asyncio.Queue = asyncio.Queue()
+        self._feedback_queue: asyncio.Queue = asyncio.Queue()
 
     async def send(self, packet: RtpPacket):
         await self._queue.put(packet)
@@ -70,7 +70,7 @@ class LocalStreamTrack(MediaStreamTrack):
         return pkt
 
     async def read_feedback(self) -> List[AnyRtcpPacket]:
-        results = await self._reverse_queue.get()
+        results = await self._feedback_queue.get()
         if results is None:
             raise MediaStreamError
         return results
@@ -284,13 +284,13 @@ class RTCRtpSender:
                             fb.payload_size = len(pkt.payload)
                 if self.__track and isinstance(self.__track, LocalStreamTrack):
                     # print("put to queue")
-                    await self.__track._reverse_queue.put(packet)
+                    await self.__track._feedback_queue.put(packet)
 
 
         elif isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_PLI:
             self._send_keyframe()
             if self.__track and isinstance(self.__track, LocalStreamTrack):
-                await self.__track._reverse_queue.put(packet)
+                await self.__track._feedback_queue.put(packet)
         elif isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_APP:
             try:
                 bitrate, ssrcs = unpack_remb_fci(packet.fci)
